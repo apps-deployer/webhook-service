@@ -56,57 +56,16 @@ async def github_webhook(request: Request):
     event = request.headers.get("X-GitHub-Event", "")
     payload = await request.json()
 
-    if event in {"installation", "installation_repositories"}:
-        return await _handle_installation_event(event, payload)
     if event == "push":
         return await _handle_push_event(payload)
 
     return JSONResponse(status_code=200, content={"status": "ignored", "reason": f"unsupported event {event}"})
 
 
-async def _handle_installation_event(event: str, payload: dict):
-    action = payload.get("action")
-    installation = payload.get("installation") or {}
-    account = installation.get("account") or payload.get("account") or {}
-    installation_id = installation.get("id")
-
-    if not installation_id:
-        raise HTTPException(status_code=400, detail="Missing installation id")
-
-    if event == "installation" and action == "deleted":
-        await _gateway_request("DELETE", f"/internal/github/installations/{installation_id}")
-        return {"status": "deleted", "installation_id": installation_id}
-
-    if event == "installation" and action not in {"created", "new_permissions_accepted", "suspend", "unsuspend"}:
-        return {"status": "ignored", "reason": f"unsupported installation action {action}"}
-
-    sender = payload.get("sender") or {}
-    await _gateway_request(
-        "POST",
-        "/internal/github/installations",
-        json={
-            "installation_id": installation_id,
-            "github_account_id": account.get("id") or 0,
-            "github_account_login": account.get("login") or "",
-            "sender_github_id": sender.get("id"),
-        },
-    )
-    return {"status": "registered", "installation_id": installation_id}
-
-
 async def _handle_push_event(payload: dict):
     ref = payload.get("ref", "")
     if not ref.startswith("refs/heads/"):
         return JSONResponse(status_code=200, content={"status": "ignored", "reason": "not a branch push"})
-
-    installation = payload.get("installation") or {}
-    installation_id = installation.get("id")
-    if not installation_id:
-        raise HTTPException(status_code=400, detail="Missing installation id")
-
-    exists = await _gateway_request("GET", f"/internal/github/installations/{installation_id}/exists")
-    if not exists.get("exists"):
-        return JSONResponse(status_code=200, content={"status": "ignored", "reason": "unknown installation"})
 
     branch = ref.removeprefix("refs/heads/")
     repo_url = _repo_url(payload)

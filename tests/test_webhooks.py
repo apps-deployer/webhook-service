@@ -49,8 +49,6 @@ async def test_push_creates_deployment(monkeypatch):
 
     async def fake_gateway(method: str, path: str, *, json: dict | None = None):
         calls.append((method, path, json))
-        if path.endswith("/exists"):
-            return {"exists": True}
         if path == "/internal/projects/env-by-git":
             return {"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "project_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}
         if path == "/internal/deployments":
@@ -61,7 +59,6 @@ async def test_push_creates_deployment(monkeypatch):
 
     payload = {
         "ref": "refs/heads/main",
-        "installation": {"id": 10},
         "repository": {"clone_url": "https://github.com/test/repo.git"},
         "head_commit": {"id": "abc123", "message": "update"},
     }
@@ -92,3 +89,33 @@ async def test_push_creates_deployment(monkeypatch):
             "commit_message": "update",
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_push_ignores_unknown_project(monkeypatch):
+    async def fake_gateway(method: str, path: str, *, json: dict | None = None):
+        raise webhooks.HTTPException(status_code=404, detail="not found")
+
+    monkeypatch.setattr(webhooks, "_gateway_request", fake_gateway)
+
+    payload = {
+        "ref": "refs/heads/main",
+        "repository": {"clone_url": "https://github.com/test/missing.git"},
+        "head_commit": {"id": "abc123", "message": "update"},
+    }
+    import json
+    body = json.dumps(payload).encode()
+
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/webhooks/github",
+        content=body,
+        headers={
+            "X-GitHub-Event": "push",
+            "X-Hub-Signature-256": _signature(body, "secret"),
+            "Content-Type": "application/json",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ignored", "reason": "no matching environment"}
