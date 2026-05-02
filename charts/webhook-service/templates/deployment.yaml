@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webhook-service
+  template:
+    metadata:
+      labels:
+        app: webhook-service
+    spec:
+      containers:
+        - name: webhook-service
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.server.port }}
+          env:
+            - name: WEBHOOK_SERVER__PORT
+              value: {{ .Values.server.port | quote }}
+            - name: WEBHOOK_GATEWAY__BASE_URL
+              value: {{ .Values.gateway.baseUrl | quote }}
+            - name: WEBHOOK_AUTH__JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: webhook-service-secret
+                  key: JWT_SECRET
+            - name: WEBHOOK_GITHUB__WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: webhook-service-secret
+                  key: GH_WEBHOOK_SECRET

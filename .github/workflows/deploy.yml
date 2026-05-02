@@ -1,0 +1,55 @@
+name: Deploy
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yc CLI
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
+
+      - name: Configure yc and get kubeconfig
+        env:
+          YC_SA_KEY: ${{ secrets.YC_SA_KEY }}
+          YC_FOLDER_ID: ${{ secrets.YC_FOLDER_ID }}
+        run: |
+          echo "$YC_SA_KEY" > sa-key.json
+          yc config set service-account-key sa-key.json
+          yc config set folder-id "$YC_FOLDER_ID"
+          yc managed-kubernetes cluster get-credentials \
+            --name "${{ vars.YC_CLUSTER_NAME }}" \
+            --external --force
+
+      - name: Login to registry
+        run: |
+          docker login cr.yandex \
+            --username json_key \
+            --password-stdin <<< '${{ secrets.YC_SA_KEY }}'
+
+      - name: Build and push image
+        env:
+          IMAGE: ${{ vars.REGISTRY_ENDPOINT }}/webhook-service:${{ github.ref_name }}
+        run: |
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+
+      - name: Deploy
+        run: |
+          helm upgrade --install webhook-service ./charts/webhook-service \
+            --namespace apps-deployer \
+            --set image.repository="${{ vars.REGISTRY_ENDPOINT }}/webhook-service" \
+            --set image.tag="${{ github.ref_name }}" \
+            --set secrets.jwtSecret="${{ secrets.JWT_SECRET }}" \
+            --set secrets.githubWebhookSecret="${{ secrets.GH_WEBHOOK_SECRET }}" \
+            --set ingress.host="${{ vars.WEBHOOK_HOST }}" \
+            --wait --timeout 120s

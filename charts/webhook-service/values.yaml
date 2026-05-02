@@ -1,0 +1,17 @@
+image:
+  repository: ""
+  tag: latest
+  pullPolicy: IfNotPresent
+
+server:
+  port: 8003
+
+gateway:
+  baseUrl: http://api-gateway:8002
+
+ingress:
+  host: ""
+
+secrets:
+  jwtSecret: ""
+  githubWebhookSecret: ""
