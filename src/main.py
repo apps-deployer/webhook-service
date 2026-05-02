@@ -1,6 +1,10 @@
+import logging
+
 from fastapi import FastAPI
 
 from src.config import load_settings
+
+logging.basicConfig(level=logging.INFO)
 
 settings = load_settings()
 app = FastAPI(title="Webhook Service")
